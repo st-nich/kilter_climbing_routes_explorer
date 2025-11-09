@@ -20,7 +20,19 @@ import pandas as pd
 import tempfile
 import shutil
 import plotly.graph_objects as go
-import sqlite3
+from pathlib import Path
+
+# ============================================================================
+# FILE CONFIGURATION - Update these paths to match your setup
+# ============================================================================
+# For local development, update these paths:
+ZIP_PATH = 'gnn_results.zip'  # Change to '/path/to/your/gnn_results.zip'
+DB_PATH = 'kilter.db'          # Change to '/path/to/your/kilter.db'
+
+# Or if using Google Drive paths:
+# ZIP_PATH = '/content/drive/MyDrive/climbs/gnn_results.zip'
+# DB_PATH = '/content/drive/MyDrive/climbs/kilter.db'
+# ============================================================================
 
 # Page config
 st.set_page_config(
@@ -46,76 +58,41 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 @st.cache_data
-def load_data(zip_path='gnn_results.zip', db_path='kilter.db'):
-    """Load and process all data"""
-    print(f"Loading data from {zip_path}...")
+def load_data(data_path='streamlit_data.zip'):
+    """Load pre-processed lightweight data package"""
+    import os
+    
+    # Check if file exists
+    if not os.path.exists(data_path):
+        st.error(f"❌ Cannot find {data_path}")
+        st.info("""
+        Please upload streamlit_data.zip to your GitHub repository.
+        
+        To create this file:
+        1. Run prepare_streamlit_data.py in your Colab
+        2. Download the generated streamlit_data.zip
+        3. Upload it to your GitHub repo
+        """)
+        st.stop()
+    
+    print(f"Loading data from {data_path}...")
     temp_dir = tempfile.mkdtemp()
     
     try:
         # Extract ZIP
-        with zipfile.ZipFile(zip_path, 'r') as zipf:
+        with zipfile.ZipFile(data_path, 'r') as zipf:
             zipf.extractall(temp_dir)
         
-        # Load files
-        embeddings = np.load(f'{temp_dir}/embeddings.npy')
+        # Load pre-processed data
+        df = pd.read_pickle(f'{temp_dir}/routes.pkl')
         
-        with open(f'{temp_dir}/uuids.pkl', 'rb') as f:
-            uuids = pickle.load(f)
-        
-        meta_df = pd.read_pickle(f'{temp_dir}/meta_df.pkl')
-        
-        with open(f'{temp_dir}/holds_by_uuid.pkl', 'rb') as f:
+        with open(f'{temp_dir}/holds.pkl', 'rb') as f:
             holds_by_uuid = pickle.load(f)
         
-        # Filter routes
-        mask = meta_df['display_difficulty'] >= 15
-        embeddings = embeddings[mask]
-        uuids = [u for u, m in zip(uuids, mask) if m]
-        meta_df = meta_df[mask].reset_index(drop=True)
+        with open(f'{temp_dir}/board_geometry.pkl', 'rb') as f:
+            bg_by_layout = pickle.load(f)
         
-        # Reduce to 2D with PaCMAP
-        import pacmap
-        reducer = pacmap.PaCMAP(
-            n_components=2,
-            n_neighbors=15,
-            MN_ratio=0.5,
-            FP_ratio=2.0,
-            random_state=42
-        )
-        embedding_2d = reducer.fit_transform(embeddings)
-        
-        # Build dataframe
-        df = meta_df[meta_df['uuid'].isin(uuids)].copy().reset_index(drop=True)
-        df['emb_x'] = embedding_2d[:, 0]
-        df['emb_y'] = embedding_2d[:, 1]
-        df['uuid'] = df['uuid'].astype(str)
-        df['ascents'] = df['ascensionist_count'].fillna(0).astype(int)
-        df['quality'] = df['quality_average'].fillna(0.0)
-        df['grade'] = df['display_difficulty'].fillna(0.0)
-        df['name'] = df['name_x'].fillna('Unnamed')
-        df['setter'] = df['setter_username'].fillna('Unknown')
-        
-        # Load board geometry
-        conn = sqlite3.connect(db_path)
-        layout_ids = df['layout_id'].dropna().astype(int).unique().tolist()
-        
-        if layout_ids:
-            ph_l = ",".join(["?"] * len(layout_ids))
-            holes_df = pd.read_sql_query(
-                f"""
-                SELECT p.layout_id, h.x, h.y
-                FROM placements p
-                JOIN holes h ON p.hole_id = h.id
-                WHERE p.layout_id IN ({ph_l})
-                """,
-                conn, params=layout_ids
-            )
-        else:
-            holes_df = pd.DataFrame(columns=['layout_id', 'x', 'y'])
-        
-        bg_by_layout = {int(lid): sub[['x', 'y']].copy()
-                        for lid, sub in holes_df.groupby('layout_id')}
-        conn.close()
+        print(f"✓ Loaded {len(df)} routes successfully!")
         
         return df, holds_by_uuid, bg_by_layout
         
@@ -267,14 +244,17 @@ if st.session_state.selected_uuid:
     # Add holds
     holds = holds_by_uuid.get(st.session_state.selected_uuid)
     if holds is not None:
-        valid_holds = holds.dropna(subset=['x', 'y'])
-        
+        # holds is now a dict with 'x', 'y', 'role' lists
         for role_id in [12, 13, 14, 15]:
-            role_holds = valid_holds[valid_holds['role'] == role_id]
-            if not role_holds.empty:
+            # Find indices where role matches
+            role_indices = [i for i, r in enumerate(holds['role']) if r == role_id]
+            if role_indices:
+                role_x = [holds['x'][i] for i in role_indices]
+                role_y = [holds['y'][i] for i in role_indices]
+                
                 fig_route.add_trace(go.Scattergl(
-                    x=role_holds['x'],
-                    y=role_holds['y'],
+                    x=role_x,
+                    y=role_y,
                     mode="markers",
                     name=ROLE_NAME[role_id],
                     marker=dict(
