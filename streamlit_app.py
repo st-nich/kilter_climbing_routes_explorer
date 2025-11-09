@@ -212,15 +212,17 @@ fig_embed = go.Figure()
 
 # Determine colors and sizes based on selection
 if st.session_state.selected_uuid:
-    colors = ['red' if uuid == st.session_state.selected_uuid else grade 
-              for uuid, grade in zip(filtered_df['uuid'], filtered_df['grade'])]
-    sizes = [12 if uuid == st.session_state.selected_uuid else 5 
+    colors = ['red' if uuid == st.session_state.selected_uuid else 'lightgray'
+              for uuid in filtered_df['uuid']]
+    sizes = [15 if uuid == st.session_state.selected_uuid else 5 
              for uuid in filtered_df['uuid']]
     showscale = False
+    colorscale = None
 else:
     colors = filtered_df['grade']
     sizes = 5
     showscale = True
+    colorscale = "Viridis"
 
 fig_embed.add_trace(go.Scattergl(
     x=filtered_df['emb_x'],
@@ -229,7 +231,7 @@ fig_embed.add_trace(go.Scattergl(
     marker=dict(
         size=sizes,
         color=colors,
-        colorscale="Viridis" if not st.session_state.selected_uuid else None,
+        colorscale=colorscale,
         line=dict(width=0.3, color="black"),
         showscale=showscale,
         colorbar=dict(title="Grade") if showscale else None
