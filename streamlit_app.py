@@ -54,6 +54,18 @@ st.markdown("""
     h1 {
         font-size: 1.5rem !important;
     }
+    /* Style search result buttons */
+    div[data-testid="column"] button {
+        height: auto;
+        white-space: pre-wrap;
+        padding: 0.75rem;
+        font-size: 0.9rem;
+    }
+    /* Make buttons look like cards */
+    div[data-testid="column"] button:hover {
+        border-color: #4CAF50;
+        color: #4CAF50;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -113,12 +125,49 @@ except Exception as e:
     st.error(f"Error loading data: {e}")
     st.stop()
 
+# Search bar in main area (more prominent)
+st.markdown("### 🔍 Search Routes")
+col1, col2 = st.columns([3, 1])
+with col1:
+    search_query = st.text_input(
+        "Type route name to filter", 
+        "", 
+        placeholder="Start typing to see suggestions...",
+        label_visibility="collapsed"
+    )
+with col2:
+    if st.button("Clear All", use_container_width=True):
+        st.session_state.selected_uuid = None
+        st.rerun()
+
+# Show matching routes as clickable options if searching
+if search_query and len(search_query) >= 2:
+    matches = df[df['name'].str.contains(search_query, case=False, na=False)].head(20)
+    if len(matches) > 0:
+        st.success(f"✅ {len(matches)} matches found")
+        
+        # Create clickable buttons for each match
+        cols_per_row = 2  # Two columns for mobile
+        for i in range(0, len(matches), cols_per_row):
+            cols = st.columns(cols_per_row)
+            for j, (idx, row) in enumerate(matches.iloc[i:i+cols_per_row].iterrows()):
+                with cols[j]:
+                    button_label = f"🧗 {row['name']}\nV{row['grade']:.1f} | ★{row['quality']:.1f}"
+                    if st.button(
+                        button_label,
+                        key=f"match_{row['uuid']}",
+                        use_container_width=True
+                    ):
+                        st.session_state.selected_uuid = row['uuid']
+                        st.rerun()
+        
+        st.divider()
+    else:
+        st.info("No routes found matching your search")
+
 # Sidebar filters
 with st.sidebar:
-    st.header("Filters")
-    
-    # Search
-    search_query = st.text_input("Search route name", "")
+    st.header("📊 Filters")
     
     # Grade range
     grade_range = st.slider(
