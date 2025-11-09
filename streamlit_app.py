@@ -188,7 +188,7 @@ with st.sidebar:
         step=1
     )
 
-# Apply filters
+# Apply filters (grade and ascents only - NOT search)
 filtered_df = df[
     (df['grade'] >= grade_range[0]) &
     (df['grade'] <= grade_range[1]) &
@@ -196,13 +196,16 @@ filtered_df = df[
     (df['ascents'] <= ascent_range[1])
 ]
 
-# Apply search
-if search_query:
-    filtered_df = filtered_df[
-        filtered_df['name'].str.contains(search_query, case=False, na=False)
-    ]
-
 st.write(f"Showing {len(filtered_df)} of {len(df)} routes")
+
+# Show selected route info if one is selected
+if st.session_state.selected_uuid:
+    selected_route = df[df['uuid'] == st.session_state.selected_uuid]
+    if not selected_route.empty:
+        route = selected_route.iloc[0]
+        st.info(f"🎯 **Selected:** {route['name']} (V{route['grade']:.1f}) - highlighted in red on plot below")
+
+st.divider()
 
 # Create embedding plot
 fig_embed = go.Figure()
