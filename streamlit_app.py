@@ -111,10 +111,9 @@ if selected_route and selected_route in df_display['uuid'].values:
         height=600
     )
     
-    # Minimal mobile-friendly toolbar
+    # Minimal mobile-friendly toolbar - keep zoom, pan, and reset
     fig.update_layout(
-        modebar_remove=['zoom', 'pan', 'select', 'lasso2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d'],
-        modebar_add=['resetScale2d']
+        modebar_remove=['select', 'lasso2d', 'toImage']
     )
     
 else:
@@ -129,7 +128,7 @@ else:
         title='Climbing Routes Embedding Space (Click a point to view route)'
     )
     
-    # Simplify controls for mobile - keep only reset, remove axis labels
+    # Simplify controls for mobile - keep zoom, pan, and reset
     fig.update_layout(
         dragmode='pan',
         xaxis_title=None,
@@ -139,10 +138,9 @@ else:
         height=600
     )
     
-    # Minimal mobile-friendly toolbar
+    # Minimal mobile-friendly toolbar - keep zoom, pan, and reset
     fig.update_layout(
-        modebar_remove=['zoom', 'pan', 'select', 'lasso2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d'],
-        modebar_add=['resetScale2d']
+        modebar_remove=['select', 'lasso2d', 'toImage']
     )
 
 st.plotly_chart(fig, use_container_width=True)
@@ -199,13 +197,13 @@ if selected_route and selected_route in holds_data:
             xaxis=dict(title='X Position', scaleanchor='y'),
             yaxis=dict(title='Y Position'),
             height=400,
-            showlegend=True
+            showlegend=True,
+            dragmode='pan'
         )
         
-        # Remove ALL toolbar buttons from route plot
+        # Minimal toolbar for route plot - keep zoom and reset only
         route_fig.update_layout(
-            modebar_remove=['zoom', 'pan', 'select', 'lasso2d', 'zoomIn2d', 'zoomOut2d', 
-                           'autoScale2d', 'resetScale2d', 'toImage', 'zoom2d']
+            modebar_remove=['select', 'lasso2d', 'toImage']
         )
         
         st.plotly_chart(route_fig, use_container_width=True)
