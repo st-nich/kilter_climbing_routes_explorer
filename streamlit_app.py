@@ -1,209 +1,343 @@
+"""
+Streamlit App for Climbing Route Explorer
+Deploy to: streamlit.io (free hosting)
+
+To run locally:
+    streamlit run streamlit_app.py
+
+To deploy:
+    1. Push this file to GitHub
+    2. Go to share.streamlit.io
+    3. Connect your GitHub repo
+    4. Deploy!
+"""
 
 import streamlit as st
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 import pickle
-from io import BytesIO
+import zipfile
+import numpy as np
+import pandas as pd
+import tempfile
+import shutil
+import plotly.graph_objects as go
+from pathlib import Path
 
-st.set_page_config(page_title="🧗 Climbing Route Explorer", layout="wide")
+# ============================================================================
+# FILE CONFIGURATION - Update these paths to match your setup
+# ============================================================================
+# For local development, update these paths:
+ZIP_PATH = 'gnn_results.zip'  # Change to '/path/to/your/gnn_results.zip'
+DB_PATH = 'kilter.db'          # Change to '/path/to/your/kilter.db'
+
+# Or if using Google Drive paths:
+# ZIP_PATH = '/content/drive/MyDrive/climbs/gnn_results.zip'
+# DB_PATH = '/content/drive/MyDrive/climbs/kilter.db'
+# ============================================================================
+
+# Page config
+st.set_page_config(
+    page_title="🧗 Climbing Route Explorer",
+    page_icon="🧗",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+# Custom CSS for mobile-friendly layout
+st.markdown("""
+<style>
+    .main > div {
+        padding-top: 2rem;
+    }
+    .stPlotlyChart {
+        height: 450px;
+    }
+    h1 {
+        font-size: 1.5rem !important;
+    }
+    /* Style search result buttons */
+    div[data-testid="column"] button {
+        height: auto;
+        white-space: pre-wrap;
+        padding: 0.75rem;
+        font-size: 0.9rem;
+    }
+    /* Make buttons look like cards */
+    div[data-testid="column"] button:hover {
+        border-color: #4CAF50;
+        color: #4CAF50;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 @st.cache_data
-def load_data():
-    """Load the lightweight data package"""
-    with open('streamlit_data.zip', 'rb') as f:
-        import zipfile
-        with zipfile.ZipFile(f) as z:
-            with z.open('routes.pkl') as f:
-                df = pd.read_pickle(f)
-            with z.open('holds.pkl') as f:
-                holds_data = pickle.load(f)
-            with z.open('board_geometry.pkl') as f:
-                board_geometry = pickle.load(f)
-    return df, holds_data, board_geometry
+def load_data(data_path='streamlit_data.zip'):
+    """Load pre-processed lightweight data package"""
+    import os
+    
+    # Check if file exists
+    if not os.path.exists(data_path):
+        st.error(f"❌ Cannot find {data_path}")
+        st.info("""
+        Please upload streamlit_data.zip to your GitHub repository.
+        
+        To create this file:
+        1. Run prepare_streamlit_data.py in your Colab
+        2. Download the generated streamlit_data.zip
+        3. Upload it to your GitHub repo
+        """)
+        st.stop()
+    
+    print(f"Loading data from {data_path}...")
+    temp_dir = tempfile.mkdtemp()
+    
+    try:
+        # Extract ZIP
+        with zipfile.ZipFile(data_path, 'r') as zipf:
+            zipf.extractall(temp_dir)
+        
+        # Load pre-processed data
+        df = pd.read_pickle(f'{temp_dir}/routes.pkl')
+        
+        with open(f'{temp_dir}/holds.pkl', 'rb') as f:
+            holds_by_uuid = pickle.load(f)
+        
+        with open(f'{temp_dir}/board_geometry.pkl', 'rb') as f:
+            bg_by_layout = pickle.load(f)
+        
+        print(f"✓ Loaded {len(df)} routes successfully!")
+        
+        return df, holds_by_uuid, bg_by_layout
+        
+    finally:
+        shutil.rmtree(temp_dir)
 
-df, holds_data, board_geometry = load_data()
+# Initialize session state
+if 'selected_uuid' not in st.session_state:
+    st.session_state.selected_uuid = None
 
+# Title
 st.title("🧗 Climbing Route Explorer")
 
-# Search box
-st.subheader("🔍 Search Routes")
-search_query = st.text_input("Start typing to see suggestions...", "")
+# Load data
+try:
+    df, holds_by_uuid, bg_by_layout = load_data()
+except Exception as e:
+    st.error(f"Error loading data: {e}")
+    st.stop()
 
-# Filter controls
-col1, col2 = st.columns(2)
+# Search bar in main area (more prominent)
+st.markdown("### 🔍 Search Routes")
+col1, col2 = st.columns([3, 1])
 with col1:
-    min_grade, max_grade = st.slider(
+    search_query = st.text_input(
+        "Type route name to filter", 
+        "", 
+        placeholder="Start typing to see suggestions...",
+        label_visibility="collapsed"
+    )
+with col2:
+    if st.button("Clear All", use_container_width=True):
+        st.session_state.selected_uuid = None
+        st.rerun()
+
+# Show matching routes as clickable options if searching
+if search_query and len(search_query) >= 2:
+    matches = df[df['name'].str.contains(search_query, case=False, na=False)].head(20)
+    if len(matches) > 0:
+        st.success(f"✅ {len(matches)} matches found")
+        
+        # Create clickable buttons for each match
+        cols_per_row = 2  # Two columns for mobile
+        for i in range(0, len(matches), cols_per_row):
+            cols = st.columns(cols_per_row)
+            for j, (idx, row) in enumerate(matches.iloc[i:i+cols_per_row].iterrows()):
+                with cols[j]:
+                    button_label = f"🧗 {row['name']}\nV{row['grade']:.1f} | ★{row['quality']:.1f}"
+                    if st.button(
+                        button_label,
+                        key=f"match_{row['uuid']}",
+                        use_container_width=True
+                    ):
+                        st.session_state.selected_uuid = row['uuid']
+                        st.rerun()
+        
+        st.divider()
+    else:
+        st.info("No routes found matching your search")
+
+# Sidebar filters
+with st.sidebar:
+    st.header("📊 Filters")
+    
+    # Grade range
+    grade_range = st.slider(
         "Grade Range",
         float(df['grade'].min()),
         float(df['grade'].max()),
-        (float(df['grade'].min()), float(df['grade'].max()))
+        (float(df['grade'].min()), float(df['grade'].max())),
+        step=0.1,
+        format="V%.1f"
     )
-with col2:
-    min_ascents = st.slider(
-        "Minimum Ascents",
-        0,
+    
+    # Ascent range
+    ascent_range = st.slider(
+        "Ascent Range",
+        int(df['ascents'].min()),
         int(df['ascents'].max()),
-        0
+        (int(df['ascents'].min()), int(df['ascents'].max())),
+        step=1
     )
 
-# Apply filters
-df_filtered = df[
-    (df['grade'] >= min_grade) &
-    (df['grade'] <= max_grade) &
-    (df['ascents'] >= min_ascents)
-].copy()
+# Apply filters (grade and ascents only - NOT search)
+filtered_df = df[
+    (df['grade'] >= grade_range[0]) &
+    (df['grade'] <= grade_range[1]) &
+    (df['ascents'] >= ascent_range[0]) &
+    (df['ascents'] <= ascent_range[1])
+]
 
-# Search functionality
-selected_route = None
-if search_query:
-    matches = df_filtered[df_filtered['name'].str.contains(search_query, case=False, na=False)]
-    if len(matches) > 0:
-        st.info(f"🎯 Selected: {matches.iloc[0]['name']} (V{matches.iloc[0]['grade']}) - highlighted in red on plot below")
-        selected_route = matches.iloc[0]['uuid']
+st.write(f"Showing {len(filtered_df)} of {len(df)} routes")
 
-st.write(f"Showing {len(df_filtered)} of {len(df)} routes")
+# Show selected route info if one is selected
+if st.session_state.selected_uuid:
+    selected_route = df[df['uuid'] == st.session_state.selected_uuid]
+    if not selected_route.empty:
+        route = selected_route.iloc[0]
+        st.info(f"🎯 **Selected:** {route['name']} (V{route['grade']:.1f}) - highlighted in red on plot below")
 
-# Create display dataframe with colors
-df_display = df_filtered.copy()
-if selected_route:
-    df_display['color'] = df_display['uuid'].apply(lambda x: 'red' if x == selected_route else 'gray')
-    df_display['size'] = df_display['uuid'].apply(lambda x: 10 if x == selected_route else 5)
+st.divider()
+
+# Create embedding plot
+fig_embed = go.Figure()
+
+# Determine colors and sizes based on selection
+if st.session_state.selected_uuid:
+    colors = ['red' if uuid == st.session_state.selected_uuid else 'lightgray'
+              for uuid in filtered_df['uuid']]
+    sizes = [15 if uuid == st.session_state.selected_uuid else 5 
+             for uuid in filtered_df['uuid']]
+    showscale = False
+    colorscale = None
 else:
-    df_display['color'] = df_display['grade']
-    df_display['size'] = 5
+    colors = filtered_df['grade']
+    sizes = 5
+    showscale = True
+    colorscale = "Viridis"
 
-# Embedding plot with improved mobile config
-if selected_route and selected_route in df_display['uuid'].values:
-    fig = go.Figure()
-    
-    # Plot non-selected points
-    df_gray = df_display[df_display['uuid'] != selected_route]
-    fig.add_trace(go.Scatter(
-        x=df_gray['emb_x'],
-        y=df_gray['emb_y'],
-        mode='markers',
-        marker=dict(color='lightgray', size=5, opacity=0.5),
-        hovertemplate='<b>%{customdata[0]}</b><br>Grade: %{customdata[1]}<br>Quality: %{customdata[2]:.1f}<br>Ascents: %{customdata[3]}<extra></extra>',
-        customdata=df_gray[['name', 'grade', 'quality', 'ascents']].values,
-        showlegend=False
-    ))
-    
-    # Plot selected point
-    df_red = df_display[df_display['uuid'] == selected_route]
-    fig.add_trace(go.Scatter(
-        x=df_red['emb_x'],
-        y=df_red['emb_y'],
-        mode='markers',
-        marker=dict(color='red', size=10),
-        hovertemplate='<b>%{customdata[0]}</b><br>Grade: %{customdata[1]}<br>Quality: %{customdata[2]:.1f}<br>Ascents: %{customdata[3]}<extra></extra>',
-        customdata=df_red[['name', 'grade', 'quality', 'ascents']].values,
-        showlegend=False
-    ))
-    
-    fig.update_layout(
-        title='Climbing Routes Embedding Space (Click a point to view route)',
-        dragmode='pan',
-        xaxis_title=None,
-        yaxis_title=None,
-        xaxis=dict(showticklabels=False),
-        yaxis=dict(showticklabels=False),
-        height=600
-    )
-    
-    # Minimal mobile-friendly toolbar - keep zoom, pan, and reset
-    fig.update_layout(
-        modebar_remove=['select', 'lasso2d', 'toImage']
-    )
-    
-else:
-    fig = px.scatter(
-        df_display,
-        x='emb_x',
-        y='emb_y',
-        color='grade',
-        hover_data={'name': True, 'grade': True, 'quality': True, 'ascents': True,
-                    'emb_x': False, 'emb_y': False},
-        color_continuous_scale='Viridis',
-        title='Climbing Routes Embedding Space (Click a point to view route)'
-    )
-    
-    # Simplify controls for mobile - keep zoom, pan, and reset
-    fig.update_layout(
-        dragmode='pan',
-        xaxis_title=None,
-        yaxis_title=None,
-        xaxis=dict(showticklabels=False),
-        yaxis=dict(showticklabels=False),
-        height=600
-    )
-    
-    # Minimal mobile-friendly toolbar - keep zoom, pan, and reset
-    fig.update_layout(
-        modebar_remove=['select', 'lasso2d', 'toImage']
-    )
+fig_embed.add_trace(go.Scattergl(
+    x=filtered_df['emb_x'],
+    y=filtered_df['emb_y'],
+    mode="markers",
+    marker=dict(
+        size=sizes,
+        color=colors,
+        colorscale=colorscale,
+        line=dict(width=0.3, color="black"),
+        showscale=showscale,
+        colorbar=dict(title="Grade") if showscale else None
+    ),
+    text=(filtered_df['name'] + "<br>V" + filtered_df['grade'].round(1).astype(str) +
+          " | ★" + filtered_df['quality'].round(2).astype(str) +
+          "<br>" + filtered_df['setter']),
+    customdata=filtered_df['uuid'],
+    hovertemplate="%{text}<extra></extra>",
+))
 
-st.plotly_chart(fig, use_container_width=True)
+fig_embed.update_layout(
+    title="Climbing Routes Embedding Space (Click a point to view route)",
+    xaxis=dict(title="Dimension 1"),
+    yaxis=dict(title="Dimension 2"),
+    height=450,
+    template="plotly_white",
+    hovermode='closest'
+)
 
-# Route details
-if selected_route and selected_route in holds_data:
-    route_info = df_filtered[df_filtered['uuid'] == selected_route].iloc[0]
+# Display embedding plot and capture clicks
+selected_point = st.plotly_chart(fig_embed, use_container_width=True, 
+                                  key="embed_plot", 
+                                  on_select="rerun")
+
+# Handle point selection
+if selected_point and 'selection' in selected_point:
+    if 'points' in selected_point['selection'] and len(selected_point['selection']['points']) > 0:
+        point_idx = selected_point['selection']['points'][0]['point_index']
+        st.session_state.selected_uuid = filtered_df.iloc[point_idx]['uuid']
+
+# Display route visualization if selected
+if st.session_state.selected_uuid:
+    route = df[df['uuid'] == st.session_state.selected_uuid].iloc[0]
     
-    # Compact single-line title
-    st.markdown(f"📍 **{route_info['name']}** - Grade: V{route_info['grade']} | Quality: {route_info['quality']:.1f}★ | Ascents: {route_info['ascents']}")
+    st.markdown("---")
+    st.subheader(f"📍 {route['name']}")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Grade", f"V{route['grade']:.1f}")
+    col2.metric("Quality", f"{route['quality']:.1f}★")
+    col3.metric("Ascents", f"{route['ascents']}")
     
-    # Route visualization
-    holds = holds_data[selected_route]
-    layout_id = int(route_info['layout_id']) if pd.notna(route_info['layout_id']) else None
+    # Create route visualization
+    fig_route = go.Figure()
     
-    if layout_id and layout_id in board_geometry:
-        bg = board_geometry[layout_id]
-        
-        # Create route plot - NO TOOLBAR AT ALL
-        route_fig = go.Figure()
-        
-        # Board holes (background)
-        route_fig.add_trace(go.Scatter(
-            x=bg['x'], y=bg['y'],
-            mode='markers',
-            marker=dict(color='lightgray', size=3, opacity=0.3),
+    ROLE_NAME = {12: "Start", 13: "Hand", 14: "Finish", 15: "Foot"}
+    ROLE_COLOR = {12: "#00FF00", 13: "#00FFFF", 14: "#FF00FF", 15: "#FFA500"}
+    ROLE_SIZE = {12: 14, 13: 10, 14: 14, 15: 10}
+    
+    # Add board background
+    layout_id = int(route['layout_id'])
+    if layout_id in bg_by_layout:
+        bg = bg_by_layout[layout_id]
+        fig_route.add_trace(go.Scattergl(
+            x=bg['x'],
+            y=bg['y'],
+            mode="markers",
+            marker=dict(size=3, opacity=0.15, color="lightgray"),
+            hoverinfo="skip",
             showlegend=False,
-            hoverinfo='skip'
+            name="Board"
         ))
-        
-        # Route holds (colored by role)
-        role_colors = {
-            'start': 'green',
-            'hand': 'cyan', 
-            'finish': 'magenta',
-            'foot': 'orange'
-        }
-        
-        for role, color in role_colors.items():
-            role_mask = [r == role for r in holds['role']]
-            if any(role_mask):
-                role_x = [x for x, m in zip(holds['x'], role_mask) if m]
-                role_y = [y for y, m in zip(holds['y'], role_mask) if m]
-                route_fig.add_trace(go.Scatter(
-                    x=role_x, y=role_y,
-                    mode='markers',
-                    marker=dict(color=color, size=12),
-                    name=role.capitalize(),
-                    showlegend=True
+    
+    # Add holds
+    holds = holds_by_uuid.get(st.session_state.selected_uuid)
+    if holds is not None:
+        # holds is now a dict with 'x', 'y', 'role' lists
+        for role_id in [12, 13, 14, 15]:
+            # Find indices where role matches
+            role_indices = [i for i, r in enumerate(holds['role']) if r == role_id]
+            if role_indices:
+                role_x = [holds['x'][i] for i in role_indices]
+                role_y = [holds['y'][i] for i in role_indices]
+                
+                fig_route.add_trace(go.Scattergl(
+                    x=role_x,
+                    y=role_y,
+                    mode="markers",
+                    name=ROLE_NAME[role_id],
+                    marker=dict(
+                        size=ROLE_SIZE[role_id],
+                        color=ROLE_COLOR[role_id],
+                        line=dict(width=1.5, color="black")
+                    ),
+                    hovertemplate="(%{x:.1f}, %{y:.1f})<extra></extra>"
                 ))
-        
-        route_fig.update_layout(
-            title=None,
-            xaxis=dict(title='X Position', scaleanchor='y'),
-            yaxis=dict(title='Y Position'),
-            height=400,
-            showlegend=True,
-            dragmode='pan'
-        )
-        
-        # Minimal toolbar for route plot - keep zoom and reset only
-        route_fig.update_layout(
-            modebar_remove=['select', 'lasso2d', 'toImage']
-        )
-        
-        st.plotly_chart(route_fig, use_container_width=True)
+    
+    fig_route.update_layout(
+        title=f"{route['name']} - V{route['grade']:.1f}",
+        xaxis=dict(
+            title="X Position",
+            range=[-20, 150],
+            scaleanchor="y",
+            scaleratio=1
+        ),
+        yaxis=dict(
+            title="Y Position",
+            range=[0, 200]
+        ),
+        height=450,
+        template="plotly_white",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
+    )
+    
+    st.plotly_chart(fig_route, use_container_width=True)
+    
+    if st.button("Clear Selection"):
+        st.session_state.selected_uuid = None
+        st.rerun()
