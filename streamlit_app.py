@@ -252,6 +252,11 @@ fig_embed.update_layout(
     hovermode='closest'
 )
 
+# Simplify toolbar - keep essential zoom/pan tools
+fig_embed.update_layout(
+    modebar_remove=['select', 'lasso2d']
+)
+
 # Display embedding plot and capture clicks
 selected_point = st.plotly_chart(fig_embed, use_container_width=True, 
                                   key="embed_plot", 
@@ -268,11 +273,7 @@ if st.session_state.selected_uuid:
     route = df[df['uuid'] == st.session_state.selected_uuid].iloc[0]
     
     st.markdown("---")
-    st.subheader(f"📍 {route['name']}")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Grade", f"V{route['grade']:.1f}")
-    col2.metric("Quality", f"{route['quality']:.1f}★")
-    col3.metric("Ascents", f"{route['ascents']}")
+    st.markdown(f"### 📍 {route['name']} - V{route['grade']:.1f} | ★{route['quality']:.1f} | {route['ascents']} ascents")
     
     # Create route visualization
     fig_route = go.Figure()
@@ -334,6 +335,12 @@ if st.session_state.selected_uuid:
         height=450,
         template="plotly_white",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
+    )
+    
+    # Remove all toolbar controls from route plot
+    fig_route.update_layout(
+        modebar_remove=['zoom', 'pan', 'select', 'lasso2d', 'zoomIn2d', 'zoomOut2d', 
+                       'autoScale2d', 'resetScale2d', 'toImage', 'zoom2d']
     )
     
     st.plotly_chart(fig_route, use_container_width=True)
