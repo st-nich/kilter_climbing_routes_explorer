@@ -245,8 +245,8 @@ fig_embed.add_trace(go.Scattergl(
 
 fig_embed.update_layout(
     title="Climbing Routes Embedding Space (Click a point to view route)",
-    xaxis=dict(title="Dimension 1"),
-    yaxis=dict(title="Dimension 2"),
+    xaxis=dict(title=None),
+    yaxis=dict(title=None),
     height=450,
     template="plotly_white",
     hovermode='closest'
@@ -323,13 +323,13 @@ if st.session_state.selected_uuid:
     fig_route.update_layout(
         title=f"{route['name']} - V{route['grade']:.1f}",
         xaxis=dict(
-            title="X Position",
+            title=None,
             range=[-20, 150],
             scaleanchor="y",
             scaleratio=1
         ),
         yaxis=dict(
-            title="Y Position",
+            title=None,
             range=[0, 200]
         ),
         height=450,
